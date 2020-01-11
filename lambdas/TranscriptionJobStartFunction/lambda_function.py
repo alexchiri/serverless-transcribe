@@ -7,12 +7,16 @@ import uuid
 import os
 import re
 import urllib.parse
+import logging
 
 s3 = boto3.client('s3')
 ses = boto3.client('ses')
 transcribe = boto3.client('transcribe')
 
 s3_host = f"s3-{os.environ['AWS_REGION']}.amazonaws.com"
+
+logger = logging.getLogger()
+logger.setLevel(logging.WARNING)
 
 
 def get_media_format(path):
@@ -34,7 +38,7 @@ def get_s3_metadata(bucket, key):
     return s3.head_object(Bucket=bucket, Key=key)['Metadata']
 
 
-def lambda_handler(event, context):
+def handle_transcription_start(event):
     # Generate a unique name for the job
     transcription_job_name = uuid.uuid4()
 
@@ -83,3 +87,10 @@ def lambda_handler(event, context):
             }
         }
     )
+
+
+def lambda_handler(event, context):
+    try:
+        handle_transcription_start(event)
+    except Exception as error:
+        logger.exception(error)

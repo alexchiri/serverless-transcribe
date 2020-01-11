@@ -2,6 +2,8 @@ import boto3
 import json
 import os
 import re
+import logging
+import datetime
 
 s3_resource = boto3.resource('s3')
 
@@ -10,6 +12,9 @@ ses = boto3.client('ses')
 transcribe = boto3.client('transcribe')
 
 media_bucket_name = os.environ['MEDIA_BUCKET_NAME']
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 
 def s3_key_from_url(s3_url):
@@ -96,12 +101,18 @@ def parse_transcript_data(transcript_data):
 
                 contents.append(item['alternatives'][0]['content'])
 
-            lines.append(f"{segment['speaker_label']}: {''.join(contents)}")
+            logger.info(f"Processing segment: {''.join(contents)}")
+            start_time_str = str(datetime.timedelta(seconds=float(segment['start_time'])))
+            logger.info(f"Start time for segment: {start_time_str}")
+            end_time_str = str(datetime.timedelta(seconds=float(segment['end_time'])))
+            logger.info(f"End time for segment: {end_time_str}")
+            lines.append(f"{segment['speaker_label']}({start_time_str}-{end_time_str}): {''.join(contents)}")
 
         text = '\n\n'.join(lines)
 
         return text
-    except Exception:
+    except Exception as error:
+        logger.exception(error)
         return ''
 
 
@@ -128,7 +139,7 @@ def send_email(to, subject, body):
     )
 
 
-def lambda_handler(event, context):
+def handle_transcription_job_event(event):
     transcription_job_name = event['detail']['TranscriptionJobName']
     transcription_job_status = event['detail']['TranscriptionJobStatus']
 
@@ -184,3 +195,10 @@ def lambda_handler(event, context):
     else:
         # TODO
         pass
+
+
+def lambda_handler(event, context):
+    try:
+        handle_transcription_job_event(event)
+    except Exception as error:
+        logger.exception(error)
