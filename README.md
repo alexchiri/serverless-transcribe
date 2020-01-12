@@ -41,3 +41,7 @@ Deploying using the  [AWS SAM CLI](https://github.com/awslabs/aws-sam-cli) is th
 Any other deployment method that is compatible with SAM templates would also work.
 
 _Note: The deploy script that was previously included in the project is no longer supported._
+
+## TODO
+
+- [ ] Make the form submit the data into a queue which gets picked up by the UploadToS3 lambda. Right now the form waits for the UploadToS3 function execution to finish, which can be quite some time for longer podcasts.
