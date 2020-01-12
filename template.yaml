@@ -301,41 +301,6 @@ Resources:
       Targets:
         - Arn: !GetAtt TranscriptionJobStateChangeFunction.Arn
           Id: !Sub ${AWS::StackName}.Transcribe.JobState
-  # Website API
-  WebsiteApiFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: lambdas/WebsiteApiFunction/
-      Description: >
-        Provides a simple API for browser-based S3 uploading
-      Environment:
-        Variables:
-          MEDIA_BUCKET: !Ref MediaBucket
-          MEDIA_BUCKET_DOMAIN_NAME: !GetAtt MediaBucket.RegionalDomainName
-          UPLOAD_ACCESS_KEY_ID: !Ref MediaBucketAccessIamUserAccessKey
-          UPLOAD_SECRET_ACCESS_KEY: !GetAtt MediaBucketAccessIamUserAccessKey.SecretAccessKey
-      Handler: lambda_function.lambda_handler
-      MemorySize: 128
-      Role: !GetAtt WebsiteApiFunctionIamRole.Arn
-      Runtime: python3.7
-      Tags:
-        Project: serverless-transcribe
-      Timeout: 3
-  WebsiteApiFunctionIamRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - lambda.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Path: "/"
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
   WebsiteApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
@@ -349,7 +314,6 @@ Resources:
       DeploymentId: !Ref WebsiteApiDeployment
   WebsiteApiDeployment:
     DependsOn:
-      - WebsiteApiBrowserBasedUploadMethod
       - StaticWebsiteMethod
     Type: AWS::ApiGateway::Deployment
     Properties:
@@ -362,37 +326,6 @@ Resources:
       ResponseType: UNAUTHORIZED
       RestApiId: !Ref WebsiteApi
       StatusCode: "401"
-  WebsiteApiV1Resource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref WebsiteApi
-      ParentId: !GetAtt WebsiteApi.RootResourceId
-      PathPart: v1
-  WebsiteApiBrowserBasedUploadResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref WebsiteApi
-      ParentId: !Ref WebsiteApiV1Resource
-      PathPart: browser-based-upload
-  WebsiteApiBrowserBasedUploadMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref WebsiteApi
-      ResourceId: !Ref WebsiteApiBrowserBasedUploadResource
-      HttpMethod: GET
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebsiteApiFunction.Arn}/invocations
-  WebsiteApiBrowserBasedUploadMethodInvokeFunctionPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !GetAtt WebsiteApiFunction.Arn
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsiteApi}/${WebsiteApiStage}/*"
-  # Static Website
   StaticWebsiteFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -421,12 +354,6 @@ Resources:
       Path: "/"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-  StaticWebsiteResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref WebsiteApi
-      ParentId: !GetAtt WebsiteApi.RootResourceId
-      PathPart: upload
   StaticWebsiteMethod:
     Type: AWS::ApiGateway::Method
     Properties:
