@@ -1,13 +1,16 @@
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Easy serverless Amazon Trascribe
+  podcast-upload-and-transcribe
+
+  Several Lambda functions that receive a URL of a podcast file, upload it to a bucket and create a transcript of it
+  that gets sent to email
 Parameters:
+  NotificationSourceEmailAddress:
+    Type: String
   BasicAuthUsername:
     Type: String
   BasicAuthPassword:
-    Type: String
-  NotificationSourceEmailAddress:
     Type: String
 Resources:
   TranscriptionsBucket:
@@ -20,26 +23,18 @@ Resources:
             Status: Enabled
       Tags:
         - Key: Project
-          Value: serverless-transcribe
+          Value: podcast-upload-and-transcribe
   MediaBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
     Properties:
-      CorsConfiguration:
-        CorsRules:
-          - AllowedHeaders:
-              - "*"
-            AllowedMethods:
-              - "POST"
-            AllowedOrigins:
-              - "*"
       LifecycleConfiguration:
         Rules:
           - ExpirationInDays: 1
             Status: Enabled
       Tags:
         - Key: Project
-          Value: serverless-transcribe
+          Value: podcast-upload-and-transcribe
   MediaBucketAccessIamUser:
     Type: AWS::IAM::User
   MediaBucketAccessIamUserPolicy:
@@ -62,14 +57,12 @@ Resources:
     Properties:
       Status: Active
       UserName: !Ref MediaBucketAccessIamUser
-  # Transcription Job Start
   TranscriptionJobStartFunctionMediaBucketPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt TranscriptionJobStartFunction.Arn
       Principal: s3.amazonaws.com
-      # SourceArn: !GetAtt MediaBucket.Arn
       SourceArn: !GetAtt MediaBucket.Arn
   TranscriptionJobStartFunction:
     Type: AWS::Serverless::Function
@@ -137,7 +130,7 @@ Resources:
       Role: !GetAtt TranscriptionJobStartFunctionIamRole.Arn
       Runtime: python3.7
       Tags:
-        Project: serverless-transcribe
+        Project: podcast-upload-and-transcribe
       Timeout: 8
   TranscriptionJobStartFunctionIamRole:
     Type: AWS::IAM::Role
@@ -217,7 +210,7 @@ Resources:
       Role: !GetAtt TranscriptionJobStateChangeFunctionIamRole.Arn
       Runtime: python3.7
       Tags:
-        Project: serverless-transcribe
+        Project: podcast-upload-and-transcribe
       Timeout: 16
   TranscriptionJobStateChangeFunctionIamRole:
     Type: AWS::IAM::Role
@@ -315,6 +308,7 @@ Resources:
   WebsiteApiDeployment:
     DependsOn:
       - StaticWebsiteMethod
+      - UploadToS3Method
     Type: AWS::ApiGateway::Deployment
     Properties:
       RestApiId: !Ref WebsiteApi
@@ -331,13 +325,13 @@ Resources:
     Properties:
       CodeUri: lambdas/StaticWebsiteFunction/
       Description: >
-        Generates a basic front end for uploading files to S3
+        Generates a basic front end for inputting an URL and trigger the upload to S3
       Handler: lambda_function.lambda_handler
       MemorySize: 128
       Role: !GetAtt StaticWebsiteFunctionIamRole.Arn
       Runtime: python3.7
       Tags:
-        Project: serverless-transcribe
+        Project: podcast-upload-and-transcribe
       Timeout: 3
   StaticWebsiteFunctionIamRole:
     Type: AWS::IAM::Role
@@ -364,7 +358,7 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StaticWebsiteFunction.Arn}/invocations
-      ResourceId: !Ref StaticWebsiteResource
+      ResourceId: !Ref UploadToS3Resource
       RestApiId: !Ref WebsiteApi
   StaticWebsiteMethodInvokeFunctionPermission:
     Type: AWS::Lambda::Permission
@@ -378,7 +372,7 @@ Resources:
     Properties:
       CodeUri: lambdas/StaticWebsiteAuthorizerFunction/
       Description: >
-        Authorizer for S3 file upload front end
+        Authorizer for URL input form and API that triggers function which uploads to S3
       Environment:
         Variables:
           BASIC_AUTH_USERNAME: !Ref BasicAuthUsername
@@ -388,7 +382,7 @@ Resources:
       Role: !GetAtt StaticWebsiteAuthorizerFunctionIamRole.Arn
       Runtime: python3.7
       Tags:
-        Project: serverless-transcribe
+        Project: podcast-upload-and-transcribe
       Timeout: 3
   StaticWebsiteAuthorizerFunctionIamRole:
     Type: AWS::IAM::Role
@@ -409,7 +403,7 @@ Resources:
     Type: AWS::ApiGateway::Authorizer
     Properties:
       AuthorizerCredentials: !GetAtt StaticWebsiteAuthorizerIamRole.Arn
-      AuthorizerResultTtlInSeconds: 600
+      AuthorizerResultTtlInSeconds: 0
       AuthorizerUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StaticWebsiteAuthorizerFunction.Arn}/invocations
       IdentitySource: method.request.header.Authorization
       Name: !Sub ${AWS::StackName}_static_website_authorizer
@@ -440,6 +434,75 @@ Resources:
                   - !GetAtt StaticWebsiteAuthorizerFunction.Arn
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  UploadToS3Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/UploadToS3Function/
+      Description: >
+        Receives the information from the form and triggers the upload to S3
+      Environment:
+        Variables:
+          MEDIA_BUCKET: !Ref MediaBucket
+      Handler: lambda_function.lambda_handler
+      MemorySize: 128
+      Role: !GetAtt UploadToS3FunctionIamRole.Arn
+      Runtime: python3.7
+      Tags:
+        Project: podcast-upload-and-transcribe
+      Timeout: 300
+  UploadToS3FunctionIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: MediaBucketWriteAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:List*
+                  - s3:Put*
+                Resource:
+                  - !GetAtt MediaBucket.Arn
+                  - !Sub ${MediaBucket.Arn}/*
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  UploadToS3Resource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref WebsiteApi
+      ParentId: !GetAtt WebsiteApi.RootResourceId
+      PathPart: upload
+  UploadToS3Method:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaticWebsiteAuthorizer
+      HttpMethod: POST
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UploadToS3Function.Arn}/invocations
+      ResourceId: !Ref UploadToS3Resource
+      RestApiId: !Ref WebsiteApi
+  UploadToS3MethodInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt UploadToS3Function.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebsiteApi}/${WebsiteApiStage}/*"
 Outputs:
   UploadWebpageUrl:
     Description: The URL for the webpage used to upload media
